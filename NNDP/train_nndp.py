@@ -8,6 +8,20 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+'''
+    Trains the neural network dynamic programming model
+
+    params:
+        args: CLI arguments which contain hyper-parameters configurations
+
+        nndp_model: network that will be tested on the graph
+
+        graph: contains all verticies and their respective edge costs to all other verticies
+
+        n_verticies: number of verticies in the graph
+
+        device: device to send the input data to for network training. ("cpu" or "cuda")
+'''
 def train(args, nndp_model, graph, n_verticies, device):
 
     epsilon_t = 1.0
@@ -49,6 +63,13 @@ def stringify_dict(l):
 def loss_function(nndp_model, graph):
     pass
 
+'''
+    Gets all possible substates given a state.
+    params:
+        curr_state: map with keys "P" and "c", where "P" is a 
+        one-hot vector of visited and not visited verticies from the state and "c"
+        is the starting vertex of the state
+'''
 def get_substates(curr_state):
     c = curr_state["c"]
     P = curr_state["P"]
@@ -63,6 +84,16 @@ def get_substates(curr_state):
 
     return substates
 
+'''
+    Get all possible feasible dedcisions from the state
+    params:
+        curr_state: map with keys "P" and "c", where "P" is a 
+        one-hot vector of visited and not visited verticies from the state and "c"
+        is the starting vertex of the state
+
+        visited_states: map of all the visited states, where the keys of the map are
+        the states that have been visited
+'''
 def get_feasible_decisions(curr_state, visited_states):
     c = curr_state["c"]
     P = curr_state["P"]
@@ -84,13 +115,29 @@ def get_feasible_decisions(curr_state, visited_states):
 
     feas_decisions = [fd for fd in feas_decisions if stringify_dict(fd) not in visited_states]
 
-    return feas_decisions
+    return feas_decisions, idx
 
+'''
+    Makes a feasible decision according to equation (2) in the paper
+    params:
+        nndp_model: network model that will be making decisions
+
+        curr_state: map with keys "P" and "c", where "P" is a 
+        one-hot vector of visited and not visited verticies from the state and "c"
+        is the starting vertex of the state
+
+        visited_states: map of all the visited states, where the keys of the map are
+        the states that have been visited
+
+        graph: contains all verticies and their respective edge costs to all other verticies
+
+        device: device to send the input data to. ("cpu" or "cuda")
+'''
 def decision(nndp_model, curr_state, visited_states, graph, device):
     c = curr_state["c"]
     P = curr_state["P"]
 
-    feas_decisions = get_feasible_decisions(curr_state, visited_states)
+    feas_decisions, idx = get_feasible_decisions(curr_state, visited_states)
 
     arg_min = float("inf")
     arg_min_state = arg_min_substates = None
@@ -119,6 +166,18 @@ def decision(nndp_model, curr_state, visited_states, graph, device):
 
     return arg_min, arg_min_state, arg_min_substates
 
+'''
+    Makes a random feasible decision from the state
+    params:
+        curr_state: map with keys "P" and "c", where "P" is a 
+        one-hot vector of visited and not visited verticies from the state and "c"
+        is the starting vertex of the state
+
+        visited_states: map of all the visited states, where the keys of the map are
+        the states that have been visited
+
+        device: device to send the input data to. ("cpu" or "cuda")
+'''
 def random_decision(curr_state, visited_states, device):
     feas_decisions = get_feasible_decisions(curr_state, visited_states)
     rand_decision = np.random.randint(len(feas_decisions))

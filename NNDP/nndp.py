@@ -2,6 +2,13 @@ import torch
 import torch.nn as nn
 
 class NNDP(nn.Module):
+    '''
+        Creates the neural network dynamic programming model given 
+        the number of verticies in the graph
+
+        params:
+            n: the number of verticies in the graph
+    '''
     def __init__(self, n):
         super(NNDP, self).__init__()
         self.layers = self.make_nndp_layers(n)
