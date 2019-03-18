@@ -3,6 +3,11 @@ import argparse
 
 # local imports
 from NNDP.train_nndp import train
+from utils.prepare_data import prepare_data
+from NNDP.nndp import NNDP
+
+# library imports
+import torch
 
 def CreateArgsParser():
     parser = argparse.ArgumentParser(description='NNDP Pytorch')
@@ -17,7 +22,16 @@ def CreateArgsParser():
 
 def main():
     args = CreateArgsParser().parse_args()
-    train(args)
+
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
+    
+    graph = prepare_data(args.file)
+    n_verticies = len(graph)
+
+    nndp_model = NNDP(n_verticies)
+
+    train(args, nndp_model, graph, n_verticies, device)
 
 
 if __name__ == '__main__':
