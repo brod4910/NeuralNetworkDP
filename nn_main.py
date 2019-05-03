@@ -2,7 +2,7 @@
 import argparse
 
 # local imports
-from NNDP.train_nndp import train
+from NNDP.train_nn import train
 from utils.prepare_data import prepare_data
 from NNDP.nndp import NNDP
 
@@ -29,12 +29,12 @@ def main():
     graph = prepare_data(args.file)
     n_verticies = len(graph)
 
-    nndp_model = NNDP(n_verticies, n_verticies)
-    print(nndp_model.layers)
+    nndp_model = NNDP(n_verticies, out_features=n_verticies).to(device)
 
     optimizer = torch.optim.SGD(nndp_model.parameters(), lr= .001)
+    criterion = torch.nn.CrossEntropyLoss()
 
-    train(args, nndp_model, graph, n_verticies, optimizer, device)
+    train(args, nndp_model, graph, n_verticies, device, optimizer, criterion)
 
 
 if __name__ == '__main__':

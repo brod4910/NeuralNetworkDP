@@ -22,47 +22,80 @@ import numpy as np
 
         device: device to send the input data to for network training. ("cpu" or "cuda")
 '''
-def train(args, nndp_model, graph, n_verticies, device):
-
-    epsilon_t = 1.0
+def train(args, nndp_model, graph, n_verticies, optimizer, device):
+    epsilon_t = init_epsilon_t = .995
+    epsilon_t_decay = .95
+    decay_frequency = 10
     data_pool = Queue(maxsize=1000)
 
     for t in range(args.iters):
-        # intialize data structures
-        state_list = {}
+        for start_vertex in range(n_verticies):
+            Q = Queue()
+            visited_states = {}
+            # initial state (start at vertex 1)
+            s0 = {'P': [1 for i in range(n_verticies)], 'c':[1 if j == start_vertex else 0 for j in range(n_verticies)]}
+            s_final = {'P': [0 if i != start_vertex else 1 for i in range(n_verticies)], 'c':[1 if j == start_vertex else 0 for j in range(n_verticies)]}
+            # print(s_final)
+
+            Q.put(s0)
+            # put s0 into visited states
+            string_state = stringify_dict(s0)
+            visited_states[string_state] = True
+            while not Q.empty():
+                curr_state = Q.get()
+                if curr_state != s_final:
+                    # stringify states
+                    string_state = stringify_dict(curr_state)
+                    if np.random.rand() >= epsilon_t:
+                        loss, substates, min_state = loss_function(nndp_model, graph, curr_state, visited_states, device)
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+                    else:
+                        a_state, substates = random_decision(curr_state, visited_states, device)
+                    for ss in substates:
+                        string_state = stringify_dict(ss)
+                        if string_state not in visited_states:
+                            Q.put(ss)
+                            visited_states[string_state] = True
+
+        epsilon_t = init_epsilon_t * (epsilon_t_decay ** (t // decay_frequency))
+        print(epsilon_t)
+        test(nndp_model, n_verticies, graph, device)
+
+def test(nndp_model, n_verticies, graph, device):
+    for start_vertex in range(n_verticies):
+        s0 = {'P': [1 for i in range(n_verticies)], 'c':[1 if j == start_vertex else 0 for j in range(n_verticies)]}
+        s_final = {'P': [0 if i != start_vertex else 1 for i in range(n_verticies)], 'c':[1 if j == start_vertex else 0 for j in range(n_verticies)]}
         Q = Queue()
-        visited_states = {}
-        # initial state (start at vertex 1)
-        s0 = {'P': [1 for i in range(n_verticies)], 'c':[1 if j == 0 else 0 for j in range(n_verticies)]}
         Q.put(s0)
-        # put s0 into visited states
-        string_state = stringify_dict(s0)
-        visited_states[string_state] = True
-        while not Q.empty():
+        visited_states = {}
+        for i in range(n_verticies):
             curr_state = Q.get()
-            # stringify state
-            string_state = stringify_dict(curr_state)
-            # add state to state list
-            state_list[string_state] = True
-            if np.random.rand() >= epsilon_t:
-                decision_a, a_state, substates = decision(nndp_model, curr_state, visited_states, graph, device)
-            else:
-                a_state, substates = random_decision(curr_state, visited_states, device)
-            
+            if curr_state != s_final:
+                loss, substates, min_state = loss_function(nndp_model, graph, curr_state, visited_states, device)
+                print(min_state)
+
             for ss in substates:
                 string_state = stringify_dict(ss)
                 if string_state not in visited_states:
                     Q.put(ss)
                     visited_states[string_state] = True
+'''
+    Given a map, returns a string form of the map
 
+    m: instance of a map
+'''
+def stringify_dict(m):
+    return json.dumps(m)
 
+def loss_function(nndp_model, graph, curr_state, visited_states, device):
+    decision_cost, a_state, substates = decision(nndp_model, curr_state, visited_states, graph, device)
+    output = forward_pass(curr_state, nndp_model, device)
+    loss = torch.pow(output - decision_cost, 2)
 
-def stringify_dict(l):
-    return json.dumps(l)
-
-def loss_function(nndp_model, graph):
-    pass
-
+    return loss, substates, a_state
+    
 '''
     Gets all possible substates given a state.
     params:
@@ -107,8 +140,8 @@ def get_feasible_decisions(curr_state, visited_states):
         p = deepcopy(P)
         cs = deepcopy(c)
 
-        cs[idx] = 0
-        cs[f_idx] = 1
+        # cs[idx] = 0
+        # cs[f_idx] = 1
         p[f_idx] = 0
         pc = {"P" : p, "c" : cs}
         feas_decisions.append(pc)
@@ -142,29 +175,32 @@ def decision(nndp_model, curr_state, visited_states, graph, device):
     arg_min = float("inf")
     arg_min_state = arg_min_substates = None
     # iterate over all feasible decisions
-    for f_idx in feas_decisions:
+    for feas_decision in feas_decisions:
         p = deepcopy(P)
         cs = deepcopy(c)
+        feas_idx = [i for i in range(len(feas_decision['P'])) if feas_decision['P'][i] != curr_state['P'][i]][0]
 
-        cs[idx] = 0
-        cs[f_idx] = 1
-        p[f_idx] = 0
+        p[feas_idx] = 0
 
         pc = {"P" : p, "c" : cs}
         substates = get_substates(pc)
         outputs = 0
         for state in substates:
-            state = [*state["P"], *state["c"]]
-            state = torch.FloatTensor(state).to(device)
-            outputs += nndp_model(state)
-        
-        outputs += graph[idx][str(f_idx)]
+            outputs += forward_pass(state, nndp_model, device)
+
+        outputs += graph[idx][str(feas_idx)]
         if outputs < arg_min:
             arg_min = outputs
             arg_min_state = pc
             arg_min_substates = substates
 
     return arg_min, arg_min_state, arg_min_substates
+
+def forward_pass(state, nndp_model, device):
+    state = [*state["P"], *state["c"]]
+    state = torch.FloatTensor(state).to(device)
+    output = nndp_model(state)
+    return output
 
 '''
     Makes a random feasible decision from the state
@@ -179,10 +215,13 @@ def decision(nndp_model, curr_state, visited_states, graph, device):
         device: device to send the input data to. ("cpu" or "cuda")
 '''
 def random_decision(curr_state, visited_states, device):
-    feas_decisions = get_feasible_decisions(curr_state, visited_states)
+    # print('curr_state state: ', curr_state)
+    feas_decisions, idx = get_feasible_decisions(curr_state, visited_states)
+    # print('decisions: ', feas_decisions)
     rand_decision = np.random.randint(len(feas_decisions))
 
     final_decision = feas_decisions[rand_decision]
+
     substates = get_substates(final_decision)
 
     return final_decision, substates
